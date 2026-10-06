@@ -33,11 +33,11 @@ Preencha o `.env.local`:
 
 ```dotenv
 SUPABASE_URL=https://seu-projeto.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=sua-chave-service-role
+SUPABASE_SECRET_KEY=sb_secret_sua-chave-de-servidor
 JWT_SECRET=uma-chave-aleatoria-com-pelo-menos-32-caracteres
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` e `JWT_SECRET` são segredos de servidor. Nunca use esses valores em variáveis iniciadas por `NEXT_PUBLIC_` nem os envie ao repositório. Instalações antigas que já usam `NEXT_PUBLIC_SUPABASE_URL` continuam compatíveis.
+`SUPABASE_SECRET_KEY` e `JWT_SECRET` são segredos de servidor. Nunca use esses valores em variáveis iniciadas por `NEXT_PUBLIC_` nem os envie ao repositório. Instalações antigas que usam `NEXT_PUBLIC_SUPABASE_URL` ou `SUPABASE_SERVICE_ROLE_KEY` continuam compatíveis.
 
 No SQL Editor do Supabase, execute as migrations nesta ordem:
 
