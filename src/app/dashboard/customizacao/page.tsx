@@ -8,39 +8,21 @@ import { formatCurrency } from '@/lib/utils';
 import { Settings, Save, Printer, Tag, Receipt } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Barcode from 'react-barcode';
+import {
+  DEFAULT_LABEL_PRINT_CONFIG,
+  DEFAULT_RECEIPT_PRINT_CONFIG,
+  type LabelPrintConfig,
+  type ReceiptPrintConfig,
+} from '@/lib/thermalPrint';
 
 interface CustomConfig {
-  etiqueta: {
-    mostrar_codigo: boolean;
-    mostrar_codigo_barras: boolean;
-    mostrar_preco_custo: boolean;
-    fonte_tamanho: 'pequeno' | 'medio' | 'grande';
-    cor_primaria: string;
-  };
-  comprovante: {
-    mostrar_logo: boolean;
-    mostrar_cnpj: boolean;
-    mostrar_endereco: boolean;
-    mensagem_rodape: string;
-    mostrar_codigo_barras: boolean;
-  };
+  etiqueta: LabelPrintConfig;
+  comprovante: ReceiptPrintConfig;
 }
 
 const defaultConfig: CustomConfig = {
-  etiqueta: {
-    mostrar_codigo: true,
-    mostrar_codigo_barras: true,
-    mostrar_preco_custo: false,
-    fonte_tamanho: 'medio',
-    cor_primaria: '#16a34a',
-  },
-  comprovante: {
-    mostrar_logo: false,
-    mostrar_cnpj: true,
-    mostrar_endereco: true,
-    mensagem_rodape: 'Obrigado pela preferência!',
-    mostrar_codigo_barras: false,
-  },
+  etiqueta: DEFAULT_LABEL_PRINT_CONFIG,
+  comprovante: DEFAULT_RECEIPT_PRINT_CONFIG,
 };
 
 export default function CustomizacaoPage() {

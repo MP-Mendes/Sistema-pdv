@@ -7,20 +7,36 @@ import { formatCurrency } from '@/lib/utils';
 import type { Produto } from '@/lib/types';
 import { Tag, Search, Printer, Package } from 'lucide-react';
 import Barcode from 'react-barcode';
+import toast from 'react-hot-toast';
+import {
+  DEFAULT_LABEL_PRINT_CONFIG,
+  printThermalElement,
+  type LabelPaperSize,
+  type LabelPrintConfig,
+} from '@/lib/thermalPrint';
 
 export default function EtiquetasPage() {
   const { session } = useAuthStore();
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [size, setSize] = useState<'88mm' | '52mm'>('88mm');
+  const [size, setSize] = useState<LabelPaperSize>('88mm');
+  const [printConfig, setPrintConfig] = useState<LabelPrintConfig>(DEFAULT_LABEL_PRINT_CONFIG);
+  const [isPrinting, setIsPrinting] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [session]);
   const load = async () => {
     if (!session) return;
-    const { data } = await supabase.from('produtos').select('*').eq('empresa_id', session.empresa.id).eq('ativo', true).order('nome');
-    if (data) setProdutos(data);
+    const [{ data: productData }, { data: customizationData }] = await Promise.all([
+      supabase.from('produtos').select('*').eq('empresa_id', session.empresa.id).eq('ativo', true).order('nome'),
+      supabase.from('customizacoes').select('configuracao').eq('empresa_id', session.empresa.id).eq('tipo', 'etiqueta').maybeSingle(),
+    ]);
+
+    if (productData) setProdutos(productData);
+    if (customizationData?.configuracao) {
+      setPrintConfig({ ...DEFAULT_LABEL_PRINT_CONFIG, ...customizationData.configuracao });
+    }
   };
 
   const filtered = produtos.filter(p => p.nome.toLowerCase().includes(search.toLowerCase()) || p.codigo.toLowerCase().includes(search.toLowerCase()));
@@ -28,15 +44,22 @@ export default function EtiquetasPage() {
   const selectAll = () => { if (selected.size === filtered.length) setSelected(new Set()); else setSelected(new Set(filtered.map(p => p.id))); };
   const selectedProdutos = produtos.filter(p => selected.has(p.id));
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     const printContent = printRef.current;
     if (!printContent) return;
-    const printWindow = window.open('', '_blank', 'width=800,height=600');
-    if (!printWindow) return;
-    printWindow.document.write('<!DOCTYPE html><html><head><title>Etiquetas</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:5mm}.label{border:1px dashed #ccc;padding:3mm;margin-bottom:2mm;page-break-inside:avoid}.label-88mm{width:88mm}.label-52mm{width:52mm}.product-name{font-weight:bold;font-size:12px;margin-bottom:2mm}.product-price{font-size:18px;font-weight:bold;color:#16a34a;margin-bottom:2mm}.barcode{text-align:center;margin-top:2mm}@media print{body{padding:0}.label{border:none}}</style></head><body>' + printContent.innerHTML + '</body></html>');
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
+    setIsPrinting(true);
+
+    try {
+      await printThermalElement(printContent, {
+        title: `Etiquetas ${size}`,
+        widthMm: Number.parseInt(size, 10),
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error('Não foi possível abrir a impressão. Tente novamente.');
+    } finally {
+      setIsPrinting(false);
+    }
   };
 
   return (
@@ -51,8 +74,8 @@ export default function EtiquetasPage() {
                 <input type="text" value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl" placeholder="Buscar produto..." />
               </div>
               <div className="flex gap-2">
-                <button onClick={() => setSize('52mm')} className={`px-3 py-2 rounded-lg text-sm font-medium ${size === '52mm' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>52mm</button>
-                <button onClick={() => setSize('88mm')} className={`px-3 py-2 rounded-lg text-sm font-medium ${size === '88mm' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>88mm</button>
+                <button type="button" aria-pressed={size === '52mm'} onClick={() => setSize('52mm')} className={`px-3 py-2 rounded-lg text-sm font-medium ${size === '52mm' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>52mm</button>
+                <button type="button" aria-pressed={size === '88mm'} onClick={() => setSize('88mm')} className={`px-3 py-2 rounded-lg text-sm font-medium ${size === '88mm' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>88mm</button>
               </div>
             </div>
             <div className="flex justify-between">
@@ -62,7 +85,7 @@ export default function EtiquetasPage() {
             <div className="bg-white rounded-xl border max-h-[60vh] overflow-y-auto">
               {filtered.length === 0 ? <p className="p-8 text-center text-slate-400"><Package className="w-12 h-12 mx-auto mb-2 opacity-50" />Nenhum produto</p>
               : filtered.map(p => (
-                <button key={p.id} onClick={() => toggle(p.id)} className={`w-full flex items-center justify-between p-4 border-b last:border-0 text-left ${selected.has(p.id) ? 'bg-blue-50 border-l-4 border-l-blue-600' : 'hover:bg-slate-50'}`}>
+                <button key={p.id} onClick={() => toggle(p.id)} className={`w-full flex items-center justify-between p-4 border-b last:border-0 text-left ${selected.has(p.id) ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : 'hover:bg-slate-50'}`}>
                   <div><p className="font-medium">{p.nome}</p><p className="text-sm text-slate-500">Cód: {p.codigo}</p></div>
                   <p className="font-bold text-green-600">{formatCurrency(p.preco)}</p>
                 </button>
@@ -72,18 +95,22 @@ export default function EtiquetasPage() {
           <div className="space-y-4">
             <div className="flex justify-between">
               <h3 className="font-semibold">Pré-visualização</h3>
-              <button onClick={handlePrint} disabled={selectedProdutos.length === 0} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl disabled:opacity-50"><Printer className="w-5 h-5" /> Imprimir</button>
+              <button onClick={handlePrint} disabled={selectedProdutos.length === 0 || isPrinting} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"><Printer className="w-5 h-5" /> {isPrinting ? 'Preparando...' : 'Imprimir'}</button>
             </div>
             <div className="bg-white rounded-xl border p-4">
               {selectedProdutos.length === 0 ? (
                 <p className="text-center text-slate-400 py-12"><Tag className="w-12 h-12 mx-auto mb-2 opacity-50" />Selecione produtos</p>
               ) : (
-                <div ref={printRef} className={`grid gap-2 ${size === '88mm' ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                <div ref={printRef} className={`thermal-label-sheet grid gap-2 ${size === '88mm' ? 'grid-cols-1' : 'grid-cols-2'}`}>
                   {selectedProdutos.map(p => (
-                    <div key={p.id} className={`label label-${size}`}>
+                    <div key={p.id} className={`label label-${size} label-font-${printConfig.fonte_tamanho}`}>
                       <div className="product-name">{p.nome}</div>
-                      <div className="product-price">{formatCurrency(p.preco)}</div>
-                      {p.codigo && (
+                      {printConfig.mostrar_codigo && p.codigo && <div className="product-code">Cód: {p.codigo}</div>}
+                      <div className="product-price" style={{ color: printConfig.cor_primaria }}>{formatCurrency(p.preco)}</div>
+                      {printConfig.mostrar_preco_custo && p.preco_custo != null && (
+                        <div className="product-cost">Custo: {formatCurrency(p.preco_custo)}</div>
+                      )}
+                      {printConfig.mostrar_codigo_barras && p.codigo && (
                         <div className="barcode">
                           <Barcode value={p.codigo} width={size === '88mm' ? 1.5 : 1} height={30} fontSize={10} />
                         </div>
@@ -93,6 +120,7 @@ export default function EtiquetasPage() {
                 </div>
               )}
             </div>
+            <p className="text-xs text-slate-500">No diálogo de impressão, use o mesmo tamanho de papel, escala 100% e margens “Nenhuma”.</p>
           </div>
         </div>
       </div>

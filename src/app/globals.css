@@ -48,9 +48,16 @@ body {
 
 /* Print styles for receipts and labels */
 @media print {
+  @page {
+    margin: 0;
+  }
+
+  html,
   body {
+    width: auto;
     margin: 0;
     padding: 0;
+    background: #fff;
   }
 
   .no-print {
@@ -63,11 +70,18 @@ body {
 }
 
 /* Receipt styles */
-.receipt-container {
+.receipt-container,
+.thermal-receipt {
   width: 80mm;
+  max-width: 100%;
   font-family: 'Courier New', monospace;
   font-size: 12px;
+  line-height: 1.35;
   padding: 5mm;
+  color: #000;
+  background: #fff;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
 }
 
 .receipt-container.narrow {
@@ -76,21 +90,173 @@ body {
   padding: 3mm;
 }
 
+.thermal-receipt.narrow {
+  width: 58mm;
+  font-size: 10px;
+  padding: 3mm;
+}
+
+.receipt-logo {
+  display: block;
+  width: auto;
+  max-width: 36mm;
+  max-height: 18mm;
+  margin: 0 auto 2mm;
+  object-fit: contain;
+  filter: grayscale(1) contrast(1.25);
+}
+
+.receipt-header p {
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.receipt-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2mm;
+}
+
+.receipt-row > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.receipt-row > :last-child {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.receipt-total {
+  margin-top: 2mm;
+}
+
+.receipt-barcode {
+  display: flex;
+  justify-content: center;
+  margin-top: 3mm;
+  overflow: hidden;
+}
+
+.receipt-barcode svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.receipt-footer {
+  margin-top: 3mm;
+  text-align: center;
+  font-weight: 700;
+}
+
 /* Label styles */
+.thermal-label-sheet {
+  align-items: start;
+}
+
+.label {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: #000;
+  background: #fff;
+  box-sizing: border-box;
+  overflow: hidden;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
 .label-88mm {
   width: 88mm;
+  max-width: 100%;
   min-height: 30mm;
   padding: 3mm;
   border: 1px dashed #ccc;
-  page-break-inside: avoid;
 }
 
 .label-52mm {
   width: 52mm;
+  max-width: 100%;
   min-height: 25mm;
   padding: 2mm;
   border: 1px dashed #ccc;
-  page-break-inside: avoid;
+}
+
+.product-name {
+  margin-bottom: 1mm;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.product-code,
+.product-cost {
+  font-size: 10px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.product-price {
+  margin-block: 1mm;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.label-font-pequeno .product-name {
+  font-size: 10px;
+}
+
+.label-font-pequeno .product-price {
+  font-size: 16px;
+}
+
+.label-font-grande .product-name {
+  font-size: 14px;
+}
+
+.label-font-grande .product-price {
+  font-size: 22px;
+}
+
+.barcode {
+  display: flex;
+  justify-content: center;
+  margin-top: 1mm;
+  overflow: hidden;
+}
+
+.barcode svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+@media print {
+  .thermal-receipt {
+    max-width: none;
+    border: 0 !important;
+  }
+
+  .thermal-label-sheet {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .thermal-label-sheet .label {
+    width: 100% !important;
+    max-width: none;
+    margin: 0;
+    border: 0;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .thermal-label-sheet .label:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
 }
 
 /* Input focus styles */

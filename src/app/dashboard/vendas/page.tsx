@@ -9,6 +9,20 @@ import { formatCurrency } from '@/lib/utils';
 import { METODOS_PAGAMENTO, type Produto, type Cliente, type MetodoPagamento } from '@/lib/types';
 import { Search, Plus, Minus, Trash2, ShoppingCart, User, X, Check, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
+import Barcode from 'react-barcode';
+import {
+  DEFAULT_RECEIPT_PRINT_CONFIG,
+  printThermalElement,
+  type ReceiptPaperSize,
+  type ReceiptPrintConfig,
+} from '@/lib/thermalPrint';
+
+interface PrintCompanyData {
+  nome: string;
+  cnpj: string | null;
+  endereco: string | null;
+  logo_url: string | null;
+}
 
 export default function VendasPage() {
   const { session } = useAuthStore();
@@ -23,9 +37,20 @@ export default function VendasPage() {
   const [clienteSearch, setClienteSearch] = useState('');
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [paymentMetodos, setPaymentMetodos] = useState<{ metodo: MetodoPagamento; valor: number }[]>([{ metodo: 'dinheiro', valor: 0 }]);
+  const [receiptPaperSize, setReceiptPaperSize] = useState<ReceiptPaperSize>('80mm');
+  const [receiptConfig, setReceiptConfig] = useState<ReceiptPrintConfig>(DEFAULT_RECEIPT_PRINT_CONFIG);
+  const [printCompany, setPrintCompany] = useState<PrintCompanyData | null>(null);
+  const [isPrinting, setIsPrinting] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const receiptRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { loadProdutos(); loadClientes(); searchRef.current?.focus(); }, []);
+  useEffect(() => {
+    if (!session) return;
+    loadProdutos();
+    loadClientes();
+    loadPrintSettings();
+    searchRef.current?.focus();
+  }, [session]);
 
   const loadProdutos = async () => {
     if (!session) return;
@@ -37,6 +62,19 @@ export default function VendasPage() {
     if (!session) return;
     const { data } = await supabase.from('clientes').select('*').eq('empresa_id', session.empresa.id).eq('ativo', true).order('nome');
     if (data) setClientes(data);
+  };
+
+  const loadPrintSettings = async () => {
+    if (!session) return;
+    const [{ data: customizationData }, { data: companyData }] = await Promise.all([
+      supabase.from('customizacoes').select('configuracao').eq('empresa_id', session.empresa.id).eq('tipo', 'comprovante').maybeSingle(),
+      supabase.from('empresas').select('nome, cnpj, endereco, logo_url').eq('id', session.empresa.id).maybeSingle(),
+    ]);
+
+    if (customizationData?.configuracao) {
+      setReceiptConfig({ ...DEFAULT_RECEIPT_PRINT_CONFIG, ...customizationData.configuracao });
+    }
+    if (companyData) setPrintCompany(companyData);
   };
 
   const filteredProdutos = produtos.filter(p => p.nome.toLowerCase().includes(searchTerm.toLowerCase()) || p.codigo.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -54,6 +92,23 @@ export default function VendasPage() {
   const addPaymentMethod = () => { const remaining = getTotal() - paymentMetodos.reduce((s, m) => s + m.valor, 0); if (remaining <= 0) { toast.error('Total já foi coberto'); return; } setPaymentMetodos([...paymentMetodos, { metodo: 'dinheiro', valor: remaining }]); };
   const updatePaymentMethod = (index: number, field: 'metodo' | 'valor', value: any) => { const updated = [...paymentMetodos]; if (field === 'metodo') updated[index].metodo = value; else updated[index].valor = parseFloat(value) || 0; setPaymentMetodos(updated); };
   const removePaymentMethod = (index: number) => { if (paymentMetodos.length <= 1) return; setPaymentMetodos(paymentMetodos.filter((_, i) => i !== index)); };
+
+  const handlePrintReceipt = async () => {
+    if (!receiptRef.current || !lastVenda) return;
+    setIsPrinting(true);
+
+    try {
+      await printThermalElement(receiptRef.current, {
+        title: `Comprovante da venda ${lastVenda.numero_venda}`,
+        widthMm: Number.parseInt(receiptPaperSize, 10),
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error('Não foi possível abrir a impressão. Tente novamente.');
+    } finally {
+      setIsPrinting(false);
+    }
+  };
 
   const handleConfirmPayment = async () => {
     if (!session) return;
@@ -201,28 +256,48 @@ export default function VendasPage() {
           <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b"><h2 className="text-lg font-semibold">Comprovante</h2><button onClick={() => setShowReceipt(false)}><X className="w-5 h-5" /></button></div>
             <div className="p-6 overflow-y-auto">
-              <div className="text-center mb-4"><h3 className="font-bold text-lg">{session?.empresa?.nome || 'Empresa'}</h3><p className="text-xs text-slate-500">COMPROVANTE NÃO FISCAL</p></div>
-              <div className="border-t border-dashed border-slate-300 pt-3 space-y-1 text-sm">
+              <div ref={receiptRef} className={`thermal-receipt ${receiptPaperSize === '58mm' ? 'narrow' : ''}`}>
+              <div className="receipt-header text-center mb-4">
+                {receiptConfig.mostrar_logo && printCompany?.logo_url && <img className="receipt-logo" src={printCompany.logo_url} alt={`Logo de ${printCompany.nome}`} />}
+                <h3 className="font-bold text-lg">{printCompany?.nome || session?.empresa?.nome || 'Empresa'}</h3>
+                {receiptConfig.mostrar_cnpj && printCompany?.cnpj && <p>CNPJ: {printCompany.cnpj}</p>}
+                {receiptConfig.mostrar_endereco && printCompany?.endereco && <p>{printCompany.endereco}</p>}
+                <p className="text-xs text-slate-500">COMPROVANTE NÃO FISCAL</p>
+              </div>
+              <div className="receipt-section border-t border-dashed border-slate-300 pt-3 space-y-1 text-sm">
                 <p><strong>Venda #:</strong> {(lastVenda.numero_venda || 0).toString().padStart(6, '0')}</p>
                 <p><strong>Data:</strong> {new Date(lastVenda.created_at).toLocaleString('pt-BR')}</p>
                 {lastVenda.cliente_nome && <p><strong>Cliente:</strong> {lastVenda.cliente_nome}</p>}
               </div>
-              <div className="border-t border-dashed border-slate-300 mt-3 pt-3">
-                {lastVenda.itens?.map((item: any, i: number) => (<div key={i} className="flex justify-between text-sm py-1"><span>{item.quantidade}x {item.produto.nome}</span><span>{formatCurrency(item.subtotal)}</span></div>))}
+              <div className="receipt-section border-t border-dashed border-slate-300 mt-3 pt-3">
+                {lastVenda.itens?.map((item: any, i: number) => (<div key={i} className="receipt-row receipt-item flex justify-between text-sm py-1"><span>{item.quantidade}x {item.produto.nome}</span><span>{formatCurrency(item.subtotal)}</span></div>))}
               </div>
-              <div className="border-t border-dashed border-slate-300 mt-3 pt-3 space-y-1 text-sm">
-                <div className="flex justify-between"><span>Subtotal:</span><span>{formatCurrency(lastVenda.subtotal)}</span></div>
-                {lastVenda.desconto > 0 && <div className="flex justify-between text-red-500"><span>Desconto:</span><span>-{formatCurrency(lastVenda.desconto)}</span></div>}
-                <div className="flex justify-between font-bold text-lg border-t border-slate-200 pt-2"><span>Total:</span><span className="text-green-600">{formatCurrency(lastVenda.total)}</span></div>
+              <div className="receipt-section border-t border-dashed border-slate-300 mt-3 pt-3 space-y-1 text-sm">
+                <div className="receipt-row flex justify-between"><span>Subtotal:</span><span>{formatCurrency(lastVenda.subtotal)}</span></div>
+                {lastVenda.desconto > 0 && <div className="receipt-row flex justify-between"><span>Desconto:</span><span>-{formatCurrency(lastVenda.desconto)}</span></div>}
+                <div className="receipt-row receipt-total flex justify-between font-bold text-lg border-t border-slate-200 pt-2"><span>Total:</span><span>{formatCurrency(lastVenda.total)}</span></div>
               </div>
-              <div className="border-t border-dashed border-slate-300 mt-3 pt-3 text-sm">
+              <div className="receipt-section border-t border-dashed border-slate-300 mt-3 pt-3 text-sm">
                 <p className="font-medium mb-1">Pagamentos:</p>
-                {lastVenda.pagamentos?.map((p: any, i: number) => (<div key={i} className="flex justify-between"><span>{METODOS_PAGAMENTO.find(m => m.value === p.metodo)?.label}:</span><span>{formatCurrency(p.valor)}</span></div>))}
+                {lastVenda.pagamentos?.map((p: any, i: number) => (<div key={i} className="receipt-row flex justify-between"><span>{METODOS_PAGAMENTO.find(m => m.value === p.metodo)?.label}:</span><span>{formatCurrency(p.valor)}</span></div>))}
+              </div>
+              {receiptConfig.mostrar_codigo_barras && (
+                <div className="receipt-barcode"><Barcode value={(lastVenda.numero_venda || 0).toString().padStart(6, '0')} width={receiptPaperSize === '58mm' ? 1 : 1.4} height={28} fontSize={9} /></div>
+              )}
+              {receiptConfig.mensagem_rodape && <p className="receipt-footer">{receiptConfig.mensagem_rodape}</p>}
               </div>
             </div>
-            <div className="p-4 border-t">
-              <button onClick={() => window.print()} className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-all flex items-center justify-center gap-2">
-                <Printer className="w-5 h-5" /> Imprimir Comprovante
+            <div className="p-4 border-t space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium text-slate-700">Largura do papel</span>
+                <div className="flex gap-2">
+                  <button type="button" aria-pressed={receiptPaperSize === '58mm'} onClick={() => setReceiptPaperSize('58mm')} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${receiptPaperSize === '58mm' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>58mm</button>
+                  <button type="button" aria-pressed={receiptPaperSize === '80mm'} onClick={() => setReceiptPaperSize('80mm')} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${receiptPaperSize === '80mm' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>80mm</button>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500">Use escala 100% e margens “Nenhuma” no diálogo da impressora.</p>
+              <button onClick={handlePrintReceipt} disabled={isPrinting} className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                <Printer className="w-5 h-5" /> {isPrinting ? 'Preparando...' : 'Imprimir Comprovante'}
               </button>
             </div>
           </div>
