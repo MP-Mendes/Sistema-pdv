@@ -4,6 +4,7 @@ export type LabelPaperSize = '52mm' | '88mm';
 export type ReceiptPaperSize = '58mm' | '80mm';
 
 export interface LabelPrintConfig {
+  largura_papel: LabelPaperSize;
   mostrar_codigo: boolean;
   mostrar_codigo_barras: boolean;
   mostrar_preco_custo: boolean;
@@ -12,6 +13,7 @@ export interface LabelPrintConfig {
 }
 
 export interface ReceiptPrintConfig {
+  largura_papel: ReceiptPaperSize;
   mostrar_logo: boolean;
   mostrar_cnpj: boolean;
   mostrar_endereco: boolean;
@@ -20,6 +22,7 @@ export interface ReceiptPrintConfig {
 }
 
 export const DEFAULT_LABEL_PRINT_CONFIG: LabelPrintConfig = {
+  largura_papel: '88mm',
   mostrar_codigo: true,
   mostrar_codigo_barras: true,
   mostrar_preco_custo: false,
@@ -28,6 +31,7 @@ export const DEFAULT_LABEL_PRINT_CONFIG: LabelPrintConfig = {
 };
 
 export const DEFAULT_RECEIPT_PRINT_CONFIG: ReceiptPrintConfig = {
+  largura_papel: '80mm',
   mostrar_logo: false,
   mostrar_cnpj: true,
   mostrar_endereco: true,

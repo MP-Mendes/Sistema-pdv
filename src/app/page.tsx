@@ -1,16 +1,11 @@
-import { getSession } from '@/lib/auth';
+import { redirect } from 'next/navigation';
+import { getActiveSession } from '@/lib/auth';
 import LoginPage from './login/page';
 
 export default async function Home() {
-  const session = await getSession();
-
-  // If server-side session exists, the LoginPage client component
-  // will also detect it via /api/auth/session and redirect.
-  // We render LoginPage in all cases - it handles the redirect client-side.
-  if (session) {
-    // Still render LoginPage, it will redirect via client-side effect
-    return <LoginPage />;
-  }
+  let session = null;
+  try { session = await getActiveSession(); } catch { /* Login remains available if the backend is not configured yet. */ }
+  if (session) redirect('/dashboard');
 
   return <LoginPage />;
 }

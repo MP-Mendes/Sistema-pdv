@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { useCartStore } from '@/store/cartStore';
 import Header from '@/components/Header';
-import supabase from '@/lib/supabase';
+import { apiFetch } from '@/lib/http';
 import { formatCurrency } from '@/lib/utils';
 import { METODOS_PAGAMENTO, type Produto, type Cliente, type MetodoPagamento } from '@/lib/types';
 import { Search, Plus, Minus, Trash2, ShoppingCart, User, X, Check, Printer } from 'lucide-react';
@@ -24,6 +24,30 @@ interface PrintCompanyData {
   logo_url: string | null;
 }
 
+interface ReceiptSaleItem {
+  quantidade: number;
+  produto_nome: string;
+  subtotal: number;
+  produto?: { nome: string } | null;
+}
+
+interface ReceiptSalePayment {
+  metodo: MetodoPagamento;
+  valor: number;
+}
+
+interface ReceiptSale {
+  numero_venda: number;
+  created_at: string;
+  subtotal: number;
+  desconto: number;
+  total: number;
+  cliente_nome?: string | null;
+  cliente?: { nome: string } | null;
+  itens?: ReceiptSaleItem[];
+  pagamentos?: ReceiptSalePayment[];
+}
+
 export default function VendasPage() {
   const { session } = useAuthStore();
   const { items, clienteId, clienteNome, desconto, addItem, removeItem, updateQuantity, setCliente, setDesconto, clearCart, getSubtotal, getTotal } = useCartStore();
@@ -33,9 +57,8 @@ export default function VendasPage() {
   const [showClientModal, setShowClientModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
-  const [lastVenda, setLastVenda] = useState<any>(null);
+  const [lastVenda, setLastVenda] = useState<ReceiptSale | null>(null);
   const [clienteSearch, setClienteSearch] = useState('');
-  const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [paymentMetodos, setPaymentMetodos] = useState<{ metodo: MetodoPagamento; valor: number }[]>([{ metodo: 'dinheiro', valor: 0 }]);
   const [receiptPaperSize, setReceiptPaperSize] = useState<ReceiptPaperSize>('80mm');
   const [receiptConfig, setReceiptConfig] = useState<ReceiptPrintConfig>(DEFAULT_RECEIPT_PRINT_CONFIG);
@@ -46,6 +69,7 @@ export default function VendasPage() {
 
   useEffect(() => {
     if (!session) return;
+    if (session.usuario.role === 'operador' && desconto > 0) setDesconto(0);
     loadProdutos();
     loadClientes();
     loadPrintSettings();
@@ -54,34 +78,42 @@ export default function VendasPage() {
 
   const loadProdutos = async () => {
     if (!session) return;
-    const { data } = await supabase.from('produtos').select('*').eq('empresa_id', session.empresa.id).eq('ativo', true).order('nome');
-    if (data) setProdutos(data);
+    try {
+      const { products } = await apiFetch<{ products: Produto[] }>('/api/products');
+      setProdutos(products);
+    } catch (error) { toast.error((error as Error).message); }
   };
 
   const loadClientes = async () => {
     if (!session) return;
-    const { data } = await supabase.from('clientes').select('*').eq('empresa_id', session.empresa.id).eq('ativo', true).order('nome');
-    if (data) setClientes(data);
+    try {
+      const { clients } = await apiFetch<{ clients: Cliente[] }>('/api/clients');
+      setClientes(clients);
+    } catch (error) { toast.error((error as Error).message); }
   };
 
   const loadPrintSettings = async () => {
     if (!session) return;
-    const [{ data: customizationData }, { data: companyData }] = await Promise.all([
-      supabase.from('customizacoes').select('configuracao').eq('empresa_id', session.empresa.id).eq('tipo', 'comprovante').maybeSingle(),
-      supabase.from('empresas').select('nome, cnpj, endereco, logo_url').eq('id', session.empresa.id).maybeSingle(),
-    ]);
-
-    if (customizationData?.configuracao) {
-      setReceiptConfig({ ...DEFAULT_RECEIPT_PRINT_CONFIG, ...customizationData.configuracao });
-    }
-    if (companyData) setPrintCompany(companyData);
+    try {
+      const { settings, company } = await apiFetch<{ settings: { comprovante: ReceiptPrintConfig }; company: PrintCompanyData | null }>('/api/settings');
+      setReceiptConfig({ ...DEFAULT_RECEIPT_PRINT_CONFIG, ...settings.comprovante });
+      setReceiptPaperSize(settings.comprovante.largura_papel || '80mm');
+      if (company) setPrintCompany(company);
+    } catch (error) { toast.error((error as Error).message); }
   };
 
   const filteredProdutos = produtos.filter(p => p.nome.toLowerCase().includes(searchTerm.toLowerCase()) || p.codigo.toLowerCase().includes(searchTerm.toLowerCase()));
   const filteredClientes = clientes.filter(c => c.nome.toLowerCase().includes(clienteSearch.toLowerCase()));
 
-  const handleSelectCliente = (cliente: Cliente) => { setSelectedCliente(cliente); setCliente(cliente.id, cliente.nome); setShowClientModal(false); setClienteSearch(''); };
-  const handleAddToCart = (produto: Produto) => { if (produto.estoque <= 0) { toast.error('Produto sem estoque!'); return; } addItem(produto); toast.success(produto.nome + ' adicionado!'); setSearchTerm(''); searchRef.current?.focus(); };
+  const handleSelectCliente = (cliente: Cliente) => { setCliente(cliente.id, cliente.nome); setShowClientModal(false); setClienteSearch(''); };
+  const handleAddToCart = (produto: Produto) => {
+    const currentQuantity = items.find((item) => item.produto.id === produto.id)?.quantidade || 0;
+    if (produto.estoque <= currentQuantity) { toast.error('Estoque insuficiente!'); return; }
+    addItem(produto);
+    toast.success(produto.nome + ' adicionado!');
+    setSearchTerm('');
+    searchRef.current?.focus();
+  };
 
   const handleFinalizeSale = () => {
     if (items.length === 0) { toast.error('Adicione itens ao carrinho'); return; }
@@ -89,8 +121,33 @@ export default function VendasPage() {
     setShowPaymentModal(true);
   };
 
+  useEffect(() => {
+    const shortcuts = (event: KeyboardEvent) => {
+      if (event.key === 'F2') {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (event.key === 'F4' && items.length > 0) {
+        event.preventDefault();
+        handleFinalizeSale();
+      }
+    };
+    window.addEventListener('keydown', shortcuts);
+    return () => window.removeEventListener('keydown', shortcuts);
+  }, [items, desconto]);
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') return;
+    const code = searchTerm.trim().toLowerCase();
+    const exactProduct = produtos.find((product) => product.codigo.toLowerCase() === code);
+    if (exactProduct) {
+      event.preventDefault();
+      handleAddToCart(exactProduct);
+    }
+  };
+
   const addPaymentMethod = () => { const remaining = getTotal() - paymentMetodos.reduce((s, m) => s + m.valor, 0); if (remaining <= 0) { toast.error('Total já foi coberto'); return; } setPaymentMetodos([...paymentMetodos, { metodo: 'dinheiro', valor: remaining }]); };
-  const updatePaymentMethod = (index: number, field: 'metodo' | 'valor', value: any) => { const updated = [...paymentMetodos]; if (field === 'metodo') updated[index].metodo = value; else updated[index].valor = parseFloat(value) || 0; setPaymentMetodos(updated); };
+  const updatePaymentMethod = (index: number, field: 'metodo' | 'valor', value: string) => { const updated = [...paymentMetodos]; if (field === 'metodo') updated[index].metodo = value as MetodoPagamento; else updated[index].valor = parseFloat(value) || 0; setPaymentMetodos(updated); };
   const removePaymentMethod = (index: number) => { if (paymentMetodos.length <= 1) return; setPaymentMetodos(paymentMetodos.filter((_, i) => i !== index)); };
 
   const handlePrintReceipt = async () => {
@@ -116,19 +173,19 @@ export default function VendasPage() {
     const totalVenda = getTotal();
     if (Math.abs(totalPagamentos - totalVenda) > 0.01) { toast.error('Pagamentos (' + formatCurrency(totalPagamentos) + ') != Venda (' + formatCurrency(totalVenda) + ')'); return; }
     try {
-      const { data: lv } = await supabase.from('vendas').select('numero_venda').eq('empresa_id', session.empresa.id).order('numero_venda', { ascending: false }).limit(1).single();
-      const numeroVenda = lv ? lv.numero_venda + 1 : 1;
-      const { data: venda, error: ve } = await supabase.from('vendas').insert({ empresa_id: session.empresa.id, cliente_id: clienteId, usuario_id: session.usuario.id, numero_venda: numeroVenda, subtotal: getSubtotal(), desconto, total: totalVenda, status: 'finalizada' }).select().single();
-      if (ve) throw ve;
-      await supabase.from('itens_venda').insert(items.map(item => ({ venda_id: venda.id, produto_id: item.produto.id, produto_nome: item.produto.nome, produto_codigo: item.produto.codigo, quantidade: item.quantidade, preco_unitario: item.produto.preco, subtotal: item.subtotal })));
-      await supabase.from('pagamentos_venda').insert(paymentMetodos.map(m => ({ venda_id: venda.id, metodo: m.metodo, valor: m.valor })));
-      for (const item of items) { await supabase.from('produtos').update({ estoque: item.produto.estoque - item.quantidade }).eq('id', item.produto.id); }
-      const crediarioPayment = paymentMetodos.find(m => m.metodo === 'crediario' || m.metodo === 'carne');
-      if (crediarioPayment && clienteId) { await supabase.from('crediarios').insert({ empresa_id: session.empresa.id, cliente_id: clienteId, venda_id: venda.id, valor_total: crediarioPayment.valor, valor_pago: 0, valor_pendente: crediarioPayment.valor, status: 'aberto' }); }
-      setLastVenda({ ...venda, itens: items, pagamentos: paymentMetodos, cliente_nome: clienteNome });
+      const { sale } = await apiFetch<{ sale: ReceiptSale }>('/api/sales', {
+        method: 'POST',
+        body: JSON.stringify({
+          cliente_id: clienteId,
+          desconto,
+          itens: items.map((item) => ({ produto_id: item.produto.id, quantidade: item.quantidade })),
+          pagamentos: paymentMetodos,
+        }),
+      });
+      setLastVenda({ ...sale, cliente_nome: sale.cliente?.nome || clienteNome });
       setShowPaymentModal(false); setShowReceipt(true); clearCart(); loadProdutos();
       toast.success('Venda finalizada!');
-    } catch (error) { console.error(error); toast.error('Erro ao finalizar venda'); }
+    } catch (error) { console.error(error); toast.error((error as Error).message); }
   };
 
   const subtotal = getSubtotal(); const total = getTotal(); const totalPagamentos = paymentMetodos.reduce((s, m) => s + m.valor, 0);
@@ -141,7 +198,7 @@ export default function VendasPage() {
           <div className="lg:col-span-2 space-y-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input ref={searchRef} type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg" placeholder="Buscar produto por nome ou código..." />
+              <input ref={searchRef} type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onKeyDown={handleSearchKeyDown} className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg" placeholder="Buscar produto ou ler código de barras — F2" />
             </div>
             {searchTerm && (
               <div className="bg-white rounded-xl border border-slate-200 max-h-80 overflow-y-auto">
@@ -189,7 +246,7 @@ export default function VendasPage() {
                   <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{item.produto.nome}</p><p className="text-xs text-slate-500">{formatCurrency(item.produto.preco)} x {item.quantidade}</p></div>
                   <div className="flex items-center gap-1">
                     <button onClick={() => updateQuantity(item.produto.id, item.quantidade - 1)} className="p-1 rounded hover:bg-slate-200"><Minus className="w-3 h-3" /></button>
-                    <span className="w-8 text-center text-sm font-medium">{item.quantidade}</span>
+                    <input aria-label={`Quantidade de ${item.produto.nome}`} type="number" min="0.001" max={item.produto.estoque} step={['kg', 'l'].includes(item.produto.unidade) ? '0.001' : '1'} value={item.quantidade} onChange={(event) => updateQuantity(item.produto.id, Number(event.target.value))} className="w-16 rounded border border-slate-300 px-1 py-0.5 text-center text-sm font-medium" />
                     <button onClick={() => updateQuantity(item.produto.id, item.quantidade + 1)} className="p-1 rounded hover:bg-slate-200"><Plus className="w-3 h-3" /></button>
                   </div>
                   <p className="text-sm font-bold text-green-600 w-20 text-right">{formatCurrency(item.subtotal)}</p>
@@ -199,10 +256,16 @@ export default function VendasPage() {
             </div>
             <div className="p-4 border-t border-slate-200 space-y-2">
               <div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><span className="font-medium">{formatCurrency(subtotal)}</span></div>
+              {(session?.usuario.role === 'admin' || session?.usuario.role === 'gerente') && (
+                <label className="flex items-center justify-between gap-3 text-sm text-slate-500">
+                  Desconto
+                  <input aria-label="Desconto da venda" type="number" min="0" max={subtotal} step="0.01" value={desconto || ''} onChange={(event) => setDesconto(Math.min(subtotal, Math.max(0, Number(event.target.value) || 0)))} className="w-28 rounded-lg border border-slate-300 px-2 py-1.5 text-right text-slate-900" placeholder="0,00" />
+                </label>
+              )}
               {desconto > 0 && <div className="flex justify-between text-sm text-red-500"><span>Desconto</span><span>-{formatCurrency(desconto)}</span></div>}
               <div className="flex justify-between text-lg font-bold border-t border-slate-200 pt-2"><span>Total</span><span className="text-green-600">{formatCurrency(total)}</span></div>
               <button onClick={handleFinalizeSale} disabled={items.length === 0} className="w-full py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-                <Check className="w-5 h-5" /> Finalizar Venda
+                <Check className="w-5 h-5" /> Finalizar Venda <span className="text-xs opacity-75">F4</span>
               </button>
             </div>
           </div>
@@ -214,7 +277,7 @@ export default function VendasPage() {
             <div className="flex items-center justify-between p-4 border-b"><h2 className="text-lg font-semibold">Selecionar Cliente</h2><button onClick={() => setShowClientModal(false)}><X className="w-5 h-5" /></button></div>
             <div className="p-4"><input type="text" value={clienteSearch} onChange={(e) => setClienteSearch(e.target.value)} className="w-full px-4 py-2 border border-slate-300 rounded-lg" placeholder="Buscar cliente..." /></div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              <button onClick={() => { setSelectedCliente(null); setCliente(null, null); setShowClientModal(false); }} className="w-full p-3 text-left rounded-lg hover:bg-slate-100 border border-slate-200"><p className="font-medium">Venda sem cliente</p></button>
+              <button onClick={() => { setCliente(null, null); setShowClientModal(false); }} className="w-full p-3 text-left rounded-lg hover:bg-slate-100 border border-slate-200"><p className="font-medium">Venda sem cliente</p></button>
               {filteredClientes.map(c => (<button key={c.id} onClick={() => handleSelectCliente(c)} className="w-full p-3 text-left rounded-lg hover:bg-slate-100 border border-slate-200"><p className="font-medium">{c.nome}</p><p className="text-sm text-slate-500">{c.cpf_cnpj || 'Sem CPF/CNPJ'}</p></button>))}
             </div>
           </div>
@@ -270,7 +333,7 @@ export default function VendasPage() {
                 {lastVenda.cliente_nome && <p><strong>Cliente:</strong> {lastVenda.cliente_nome}</p>}
               </div>
               <div className="receipt-section border-t border-dashed border-slate-300 mt-3 pt-3">
-                {lastVenda.itens?.map((item: any, i: number) => (<div key={i} className="receipt-row receipt-item flex justify-between text-sm py-1"><span>{item.quantidade}x {item.produto.nome}</span><span>{formatCurrency(item.subtotal)}</span></div>))}
+                {lastVenda.itens?.map((item, i) => (<div key={i} className="receipt-row receipt-item flex justify-between text-sm py-1"><span>{item.quantidade}x {item.produto?.nome || item.produto_nome}</span><span>{formatCurrency(item.subtotal)}</span></div>))}
               </div>
               <div className="receipt-section border-t border-dashed border-slate-300 mt-3 pt-3 space-y-1 text-sm">
                 <div className="receipt-row flex justify-between"><span>Subtotal:</span><span>{formatCurrency(lastVenda.subtotal)}</span></div>
@@ -279,7 +342,7 @@ export default function VendasPage() {
               </div>
               <div className="receipt-section border-t border-dashed border-slate-300 mt-3 pt-3 text-sm">
                 <p className="font-medium mb-1">Pagamentos:</p>
-                {lastVenda.pagamentos?.map((p: any, i: number) => (<div key={i} className="receipt-row flex justify-between"><span>{METODOS_PAGAMENTO.find(m => m.value === p.metodo)?.label}:</span><span>{formatCurrency(p.valor)}</span></div>))}
+                {lastVenda.pagamentos?.map((p, i) => (<div key={i} className="receipt-row flex justify-between"><span>{METODOS_PAGAMENTO.find(m => m.value === p.metodo)?.label}:</span><span>{formatCurrency(p.valor)}</span></div>))}
               </div>
               {receiptConfig.mostrar_codigo_barras && (
                 <div className="receipt-barcode"><Barcode value={(lastVenda.numero_venda || 0).toString().padStart(6, '0')} width={receiptPaperSize === '58mm' ? 1 : 1.4} height={28} fontSize={9} /></div>

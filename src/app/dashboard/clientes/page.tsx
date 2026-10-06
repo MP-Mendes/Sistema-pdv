@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import Header from '@/components/Header';
-import supabase from '@/lib/supabase';
+import { apiFetch } from '@/lib/http';
 import type { Cliente } from '@/lib/types';
 import { Plus, Edit2, Trash2, Search, X, Users, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -18,11 +18,15 @@ export default function ClientesPage() {
   const [f, setF] = useState(empty);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { load(); }, []);
+  const canManage = session?.usuario.role === 'admin' || session?.usuario.role === 'gerente';
+
+  useEffect(() => { if (session) load(); }, [session]);
   const load = async () => {
     if (!session) return;
-    const { data } = await supabase.from('clientes').select('*').eq('empresa_id', session.empresa.id).eq('ativo', true).order('nome');
-    if (data) setClientes(data);
+    try {
+      const { clients } = await apiFetch<{ clients: Cliente[] }>('/api/clients');
+      setClientes(clients);
+    } catch (error) { toast.error((error as Error).message); }
   };
   const openNew = () => { setF(empty); setEditId(null); setShow(true); };
   const openEdit = (c: Cliente) => { setF({ nome: c.nome, cpf_cnpj: c.cpf_cnpj || '', email: c.email || '', telefone: c.telefone || '', endereco: c.endereco || '', observacoes: c.observacoes || '', limite_credito: (c.limite_credito || 0).toString() }); setEditId(c.id); setShow(true); };
@@ -30,14 +34,21 @@ export default function ClientesPage() {
     if (!session || !f.nome) { toast.error('Preencha o nome'); return; }
     setSaving(true);
     try {
-      const p = { empresa_id: session.empresa.id, nome: f.nome, cpf_cnpj: f.cpf_cnpj || null, email: f.email || null, telefone: f.telefone || null, endereco: f.endereco || null, observacoes: f.observacoes || null, limite_credito: parseFloat(f.limite_credito) || 0, ativo: true };
-      if (editId) { await supabase.from('clientes').update(p).eq('id', editId); toast.success('Atualizado!'); }
-      else { await supabase.from('clientes').insert(p); toast.success('Cadastrado!'); }
+      const p = { id: editId || undefined, nome: f.nome, cpf_cnpj: f.cpf_cnpj || null, email: f.email || null, telefone: f.telefone || null, endereco: f.endereco || null, observacoes: f.observacoes || null, limite_credito: parseFloat(f.limite_credito) || 0 };
+      await apiFetch('/api/clients', { method: editId ? 'PATCH' : 'POST', body: JSON.stringify(p) });
+      toast.success(editId ? 'Cliente atualizado!' : 'Cliente cadastrado!');
       setShow(false); load();
     } catch { toast.error('Erro ao salvar'); }
     finally { setSaving(false); }
   };
-  const del = async (id: string) => { if (!confirm('Remover?')) return; await supabase.from('clientes').update({ ativo: false }).eq('id', id); toast.success('Removido'); load(); };
+  const del = async (id: string) => {
+    if (!confirm('Desativar este cliente? O histórico será preservado.')) return;
+    try {
+      await apiFetch(`/api/clients?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      toast.success('Cliente desativado');
+      load();
+    } catch (error) { toast.error((error as Error).message); }
+  };
   const filtered = clientes.filter(c => c.nome.toLowerCase().includes(search.toLowerCase()) || (c.cpf_cnpj && c.cpf_cnpj.includes(search)));
 
   return (
@@ -63,8 +74,8 @@ export default function ClientesPage() {
                   <td className="px-4 py-3 text-sm text-slate-500">{c.telefone || '-'}</td>
                   <td className="px-4 py-3 text-sm text-slate-500">{c.email || '-'}</td>
                   <td className="px-4 py-3 text-center">
-                    <button onClick={() => openEdit(c)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg inline-block"><Edit2 className="w-4 h-4" /></button>
-                    <button onClick={() => del(c.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg inline-block ml-1"><Trash2 className="w-4 h-4" /></button>
+                    {canManage ? <><button aria-label={`Editar ${c.nome}`} onClick={() => openEdit(c)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg inline-block"><Edit2 className="w-4 h-4" /></button>
+                    <button aria-label={`Desativar ${c.nome}`} onClick={() => del(c.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg inline-block ml-1"><Trash2 className="w-4 h-4" /></button></> : <span className="text-xs text-slate-400">Somente leitura</span>}
                   </td>
                 </tr>
               ))}

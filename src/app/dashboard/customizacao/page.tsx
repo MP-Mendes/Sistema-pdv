@@ -3,15 +3,17 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import Header from '@/components/Header';
-import supabase from '@/lib/supabase';
+import { apiFetch } from '@/lib/http';
 import { formatCurrency } from '@/lib/utils';
-import { Settings, Save, Printer, Tag, Receipt } from 'lucide-react';
+import { Save, Tag, Receipt, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Barcode from 'react-barcode';
 import {
   DEFAULT_LABEL_PRINT_CONFIG,
   DEFAULT_RECEIPT_PRINT_CONFIG,
+  type LabelPaperSize,
   type LabelPrintConfig,
+  type ReceiptPaperSize,
   type ReceiptPrintConfig,
 } from '@/lib/thermalPrint';
 
@@ -31,36 +33,21 @@ export default function CustomizacaoPage() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'etiqueta' | 'comprovante'>('etiqueta');
 
-  useEffect(() => { loadConfig(); }, []);
+  useEffect(() => { if (session) loadConfig(); }, [session]);
 
   const loadConfig = async () => {
     if (!session) return;
-    const { data } = await supabase.from('customizacoes')
-      .select('*').eq('empresa_id', session.empresa.id);
-    if (data && data.length > 0) {
-      const etiquetaConfig = data.find(d => d.tipo === 'etiqueta');
-      const comprovanteConfig = data.find(d => d.tipo === 'comprovante');
-      setConfig({
-        etiqueta: { ...defaultConfig.etiqueta, ...(etiquetaConfig?.configuracao || {}) },
-        comprovante: { ...defaultConfig.comprovante, ...(comprovanteConfig?.configuracao || {}) },
-      });
-    }
+    try {
+      const { settings } = await apiFetch<{ settings: CustomConfig }>('/api/settings');
+      setConfig(settings);
+    } catch (error) { toast.error((error as Error).message); }
   };
 
   const handleSave = async () => {
     if (!session) return;
     setLoading(true);
     try {
-      // Upsert etiqueta config
-      await supabase.from('customizacoes').upsert({
-        empresa_id: session.empresa.id, tipo: 'etiqueta', configuracao: config.etiqueta,
-      }, { onConflict: 'empresa_id,tipo' });
-
-      // Upsert comprovante config
-      await supabase.from('customizacoes').upsert({
-        empresa_id: session.empresa.id, tipo: 'comprovante', configuracao: config.comprovante,
-      }, { onConflict: 'empresa_id,tipo' });
-
+      await apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(config) });
       toast.success('Configurações salvas!');
     } catch (error) {
       console.error(error);
@@ -70,18 +57,30 @@ export default function CustomizacaoPage() {
     }
   };
 
-  const updateEtiquetaConfig = (key: string, value: any) => {
+  const updateEtiquetaConfig = <K extends keyof LabelPrintConfig>(key: K, value: LabelPrintConfig[K]) => {
     setConfig(prev => ({
       ...prev,
       etiqueta: { ...prev.etiqueta, [key]: value },
     }));
   };
 
-  const updateComprovanteConfig = (key: string, value: any) => {
+  const updateComprovanteConfig = <K extends keyof ReceiptPrintConfig>(key: K, value: ReceiptPrintConfig[K]) => {
     setConfig(prev => ({
       ...prev,
       comprovante: { ...prev.comprovante, [key]: value },
     }));
+  };
+
+  const downloadBackup = async () => {
+    try {
+      const response = await fetch('/api/export');
+      if (!response.ok) throw new Error((await response.json()).error || 'Não foi possível gerar o backup.');
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(await response.blob());
+      link.download = `backup-pdv-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (error) { toast.error((error as Error).message); }
   };
 
   return (
@@ -110,6 +109,13 @@ export default function CustomizacaoPage() {
               <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
                 <h3 className="font-semibold text-slate-900">Configurações da Etiqueta</h3>
 
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Largura padrão do papel</label>
+                  <select value={config.etiqueta.largura_papel} onChange={(e) => updateEtiquetaConfig('largura_papel', e.target.value as LabelPaperSize)} className="w-full px-3 py-2 border border-slate-300 rounded-lg">
+                    <option value="52mm">52mm</option><option value="88mm">88mm</option>
+                  </select>
+                </div>
+
                 <label className="flex items-center gap-3">
                   <input type="checkbox" checked={config.etiqueta.mostrar_codigo}
                     onChange={(e) => updateEtiquetaConfig('mostrar_codigo', e.target.checked)}
@@ -134,7 +140,7 @@ export default function CustomizacaoPage() {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Tamanho da Fonte</label>
                   <select value={config.etiqueta.fonte_tamanho}
-                    onChange={(e) => updateEtiquetaConfig('fonte_tamanho', e.target.value)}
+                    onChange={(e) => updateEtiquetaConfig('fonte_tamanho', e.target.value as LabelPrintConfig['fonte_tamanho'])}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg">
                     <option value="pequeno">Pequeno</option>
                     <option value="medio">Médio</option>
@@ -154,6 +160,13 @@ export default function CustomizacaoPage() {
             {activeTab === 'comprovante' && (
               <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
                 <h3 className="font-semibold text-slate-900">Configurações do Comprovante</h3>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Largura padrão do papel</label>
+                  <select value={config.comprovante.largura_papel} onChange={(e) => updateComprovanteConfig('largura_papel', e.target.value as ReceiptPaperSize)} className="w-full px-3 py-2 border border-slate-300 rounded-lg">
+                    <option value="58mm">58mm</option><option value="80mm">80mm</option>
+                  </select>
+                </div>
 
                 <label className="flex items-center gap-3">
                   <input type="checkbox" checked={config.comprovante.mostrar_cnpj}
@@ -190,6 +203,7 @@ export default function CustomizacaoPage() {
               className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
               <Save className="w-5 h-5" /> {loading ? 'Salvando...' : 'Salvar Configurações'}
             </button>
+            {session?.usuario.role === 'admin' && <button onClick={downloadBackup} className="w-full py-3 border border-slate-300 text-slate-700 rounded-xl font-semibold hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"><Download className="w-5 h-5" /> Baixar backup dos dados</button>}
           </div>
 
           {/* Preview */}

@@ -4,10 +4,11 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
-import supabase from '@/lib/supabase';
+import { apiFetch } from '@/lib/http';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 import type { Empresa } from '@/lib/types';
 import { Shield, Building2, DollarSign, Package, TrendingUp, Search } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function AdminPage() {
   const { session } = useAuthStore();
@@ -17,26 +18,28 @@ export default function AdminPage() {
   const [stats, setStats] = useState({ totalEmpresas: 0, empresasAtivas: 0, totalVendas: 0, faturamentoTotal: 0 });
 
   useEffect(() => {
-    if (session?.usuario?.role !== 'admin') { router.push('/dashboard'); return; }
+    if (session && (session.usuario.role !== 'admin' || session.empresa.plano !== 'admin')) { router.push('/dashboard'); return; }
     loadData();
   }, [session]);
 
   const loadData = async () => {
-    const { data: ed } = await supabase.from('empresas').select('*').order('created_at', { ascending: false });
-    if (ed) setEmpresas(ed);
-    const { count: tv } = await supabase.from('vendas').select('*', { count: 'exact', head: true }).eq('status', 'finalizada');
-    const { data: vd } = await supabase.from('vendas').select('total').eq('status', 'finalizada');
-    const fat = vd?.reduce((s, v) => s + Number(v.total), 0) || 0;
-    setStats({ totalEmpresas: ed?.length || 0, empresasAtivas: ed?.filter(e => e.ativo).length || 0, totalVendas: tv || 0, faturamentoTotal: fat });
+    try {
+      const result = await apiFetch<{ companies: Empresa[]; stats: typeof stats }>('/api/platform');
+      setEmpresas(result.companies);
+      setStats(result.stats);
+    } catch (error) { toast.error((error as Error).message); }
   };
 
   const toggleStatus = async (id: string, current: boolean) => {
-    await supabase.from('empresas').update({ ativo: !current }).eq('id', id);
-    loadData();
+    try {
+      await apiFetch('/api/platform', { method: 'PATCH', body: JSON.stringify({ id, ativo: !current }) });
+      toast.success(current ? 'Empresa desativada' : 'Empresa ativada');
+      loadData();
+    } catch (error) { toast.error((error as Error).message); }
   };
 
   const filtered = empresas.filter(e => e.nome.toLowerCase().includes(searchTerm.toLowerCase()) || (e.cnpj && e.cnpj.includes(searchTerm)));
-  if (session?.usuario?.role !== 'admin') return null;
+  if (session?.usuario?.role !== 'admin' || session.empresa.plano !== 'admin') return null;
 
   return (
     <div>

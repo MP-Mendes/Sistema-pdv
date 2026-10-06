@@ -4,20 +4,24 @@ import { useAuthStore } from '@/store/authStore';
 import { useUIStore } from '@/store/uiStore';
 import {
   LayoutDashboard, ShoppingCart, Package, Users, History, CreditCard,
-  Tag, Settings, LogOut, ChevronLeft, ChevronRight, Shield, Store,
+  Tag, Settings, LogOut, ChevronLeft, ChevronRight, Shield, Store, Banknote, UserCog, BarChart3, Boxes, ScrollText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
-const menuItems = [
+const menuItems: Array<{ href: string; icon: typeof LayoutDashboard; label: string; roles?: string[] }> = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/dashboard/vendas', icon: ShoppingCart, label: 'Vendas' },
+  { href: '/dashboard/caixa', icon: Banknote, label: 'Caixa' },
   { href: '/dashboard/produtos', icon: Package, label: 'Produtos' },
+  { href: '/dashboard/estoque', icon: Boxes, label: 'Estoque', roles: ['admin', 'gerente'] },
   { href: '/dashboard/clientes', icon: Users, label: 'Clientes' },
   { href: '/dashboard/historico', icon: History, label: 'Histórico' },
+  { href: '/dashboard/relatorios', icon: BarChart3, label: 'Relatórios', roles: ['admin', 'gerente'] },
   { href: '/dashboard/crediario', icon: CreditCard, label: 'Crediário' },
   { href: '/dashboard/etiquetas', icon: Tag, label: 'Etiquetas' },
-  { href: '/dashboard/customizacao', icon: Settings, label: 'Customização' },
+  { href: '/dashboard/customizacao', icon: Settings, label: 'Customização', roles: ['admin', 'gerente'] },
+  { href: '/dashboard/auditoria', icon: ScrollText, label: 'Auditoria', roles: ['admin'] },
 ];
 
 export default function Sidebar() {
@@ -37,12 +41,12 @@ export default function Sidebar() {
     }
   };
 
-  const isAdmin = session?.usuario?.role === 'admin';
+  const isAdmin = session?.usuario?.role === 'admin' && session?.empresa?.plano === 'admin';
 
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 h-full bg-slate-900 text-white transition-all duration-300 z-40 flex flex-col',
+        'no-print fixed left-0 top-0 h-full bg-slate-900 text-white transition-all duration-300 z-40 flex flex-col',
         sidebarOpen ? 'w-64' : 'w-20'
       )}
     >
@@ -53,7 +57,7 @@ export default function Sidebar() {
             <span className="font-bold text-lg">PDV</span>
           </div>
         )}
-        <button onClick={toggleSidebar} className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors">
+        <button onClick={toggleSidebar} aria-label={sidebarOpen ? 'Recolher menu' : 'Expandir menu'} title={sidebarOpen ? 'Recolher menu' : 'Expandir menu'} className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors">
           {sidebarOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
         </button>
       </div>
@@ -67,12 +71,13 @@ export default function Sidebar() {
 
       <nav className="flex-1 py-4 overflow-y-auto">
         <ul className="space-y-1 px-2">
-          {menuItems.map((item) => {
+          {menuItems.filter((item) => !item.roles || (session && item.roles.includes(session.usuario.role))).map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
             return (
               <li key={item.href}>
                 <button
                   onClick={() => router.push(item.href)}
+                  title={!sidebarOpen ? item.label : undefined}
                   className={cn(
                     'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-left',
                     isActive ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
@@ -95,6 +100,14 @@ export default function Sidebar() {
               >
                 <Shield className="w-5 h-5 flex-shrink-0" />
                 {sidebarOpen && <span className="text-sm font-medium">Admin</span>}
+              </button>
+            </li>
+          )}
+          {session?.usuario?.role === 'admin' && (
+            <li>
+              <button onClick={() => router.push('/dashboard/equipe')} className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-left', pathname.startsWith('/dashboard/equipe') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white')}>
+                <UserCog className="w-5 h-5 flex-shrink-0" />
+                {sidebarOpen && <span className="text-sm font-medium">Equipe</span>}
               </button>
             </li>
           )}

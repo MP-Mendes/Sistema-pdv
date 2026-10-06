@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import Header from '@/components/Header';
-import supabase from '@/lib/supabase';
+import { apiFetch } from '@/lib/http';
 import { formatCurrency } from '@/lib/utils';
 import type { Produto } from '@/lib/types';
 import { Tag, Search, Printer, Package } from 'lucide-react';
@@ -28,15 +28,15 @@ export default function EtiquetasPage() {
   useEffect(() => { load(); }, [session]);
   const load = async () => {
     if (!session) return;
-    const [{ data: productData }, { data: customizationData }] = await Promise.all([
-      supabase.from('produtos').select('*').eq('empresa_id', session.empresa.id).eq('ativo', true).order('nome'),
-      supabase.from('customizacoes').select('configuracao').eq('empresa_id', session.empresa.id).eq('tipo', 'etiqueta').maybeSingle(),
-    ]);
-
-    if (productData) setProdutos(productData);
-    if (customizationData?.configuracao) {
-      setPrintConfig({ ...DEFAULT_LABEL_PRINT_CONFIG, ...customizationData.configuracao });
-    }
+    try {
+      const [{ products }, { settings }] = await Promise.all([
+        apiFetch<{ products: Produto[] }>('/api/products'),
+        apiFetch<{ settings: { etiqueta: LabelPrintConfig } }>('/api/settings'),
+      ]);
+      setProdutos(products);
+      setPrintConfig({ ...DEFAULT_LABEL_PRINT_CONFIG, ...settings.etiqueta });
+      setSize(settings.etiqueta.largura_papel || '88mm');
+    } catch (error) { toast.error((error as Error).message); }
   };
 
   const filtered = produtos.filter(p => p.nome.toLowerCase().includes(search.toLowerCase()) || p.codigo.toLowerCase().includes(search.toLowerCase()));

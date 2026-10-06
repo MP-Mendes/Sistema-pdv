@@ -1,105 +1,92 @@
 # Sistema PDV
 
-Sistema de Ponto de Venda (PDV) completo, sem emissão fiscal, construído com Next.js, Supabase e Tailwind CSS.
+Sistema de ponto de venda multiempresa, sem emissão fiscal, construído com Next.js, Supabase e Tailwind CSS.
 
-## Funcionalidades
+## Principais recursos
 
-- **Dashboard** - Visão geral com vendas do dia, produtos, clientes, crediário e gráfico semanal
-- **Vendas** - Frente de caixa com busca de produtos, carrinho, múltiplas formas de pagamento
-- **Produtos** - CRUD completo com código, estoque, preço e categoria
-- **Clientes** - Cadastro com CPF/CNPJ, telefone, observações e limite de crédito
-- **Histórico** - Consulta de vendas com filtros por período e faturamento
-- **Crediário** - Controle de crediário/carnê com registro de pagamentos
-- **Etiquetas** - Impressão de etiquetas de preço (88mm e 52mm) com código de barras
-- **Customização** - Personalização de etiquetas e comprovantes não fiscais
-- **Multi-empresa** - Cada empresa tem seus próprios dados isolados
-- **Painel Admin** - Administração central para o desenvolvedor
+- Login exclusivo para contas existentes, sem cadastro público de empresas
+- Frente de caixa com leitor de código de barras, carrinho persistente e múltiplos pagamentos
+- Venda e baixa de estoque atômicas no banco de dados
+- Cancelamento com estorno de estoque, registro do motivo e auditoria
+- Abertura, suprimento, sangria e fechamento de caixa
+- Produtos, clientes, crediário, equipe e movimentações de estoque
+- Relatórios por produto, categoria, operador e forma de pagamento
+- Exportação CSV e backup JSON dos dados da empresa
+- Etiquetas de 52/88 mm e comprovantes de 58/80 mm para impressoras térmicas
+- PWA com aviso de conexão e preservação local do carrinho
+- Isolamento de dados por empresa e permissões por função
 
-## Tecnologias
+## Requisitos
 
-- **Frontend:** Next.js 14, React 18, Tailwind CSS
-- **Backend:** Next.js API Routes + Supabase
-- **Banco de Dados:** PostgreSQL (Supabase)
-- **Autenticação:** JWT com jose
-- **Gráficos:** Recharts
-- **Ícones:** Lucide React
-- **Código de Barras:** react-barcode
-- **Deploy:** Vercel
+- Node.js 20.9 ou superior
+- Projeto no Supabase
+- Navegador atual (Chrome ou Edge são recomendados para impressão térmica)
 
 ## Instalação
 
-### 1. Clone o repositório
-
-```bash
-git clone <url-do-repositorio>
-cd sistema-pdv
-```
-
-### 2. Instale as dependências
-
 ```bash
 npm install
-```
-
-### 3. Configure o Supabase
-
-1. Crie um projeto em [supabase.com](https://supabase.com)
-2. Execute o SQL de migration localizado em `supabase/migrations/001_initial_schema.sql` no SQL Editor do Supabase
-3. Copie a URL e a chave anon do seu projeto
-
-### 4. Configure as variáveis de ambiente
-
-```bash
 cp .env.example .env.local
 ```
 
-Edite o `.env.local` com suas credenciais do Supabase:
+Preencha o `.env.local`:
 
-```
-NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sua-chave-anon
-JWT_SECRET=sua-chave-secreta
+```dotenv
+SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=sua-chave-service-role
+JWT_SECRET=uma-chave-aleatoria-com-pelo-menos-32-caracteres
 ```
 
-### 5. Execute o projeto
+`SUPABASE_SERVICE_ROLE_KEY` e `JWT_SECRET` são segredos de servidor. Nunca use esses valores em variáveis iniciadas por `NEXT_PUBLIC_` nem os envie ao repositório. Instalações antigas que já usam `NEXT_PUBLIC_SUPABASE_URL` continuam compatíveis.
+
+No SQL Editor do Supabase, execute as migrations nesta ordem:
+
+1. `supabase/migrations/001_initial_schema.sql`
+2. `supabase/migrations/002_operational_hardening.sql`
+
+Em instalações existentes, execute somente a migration `002` se a `001` já tiver sido aplicada.
+
+Depois, inicie o sistema:
 
 ```bash
 npm run dev
 ```
 
-Acesse [http://localhost:3000](http://localhost:3000)
+Acesse [http://localhost:3000](http://localhost:3000). Como o cadastro público foi removido, entre com um usuário que já exista na tabela `usuarios`. Administradores da empresa podem criar e desativar outras contas em **Equipe**.
 
-## Deploy na Vercel
+## Impressão térmica
 
-1. Faça push do código para um repositório Git
-2. Importe o projeto na [Vercel](https://vercel.com)
-3. Adicione as variáveis de ambiente (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `JWT_SECRET`)
-4. Deploy automático!
+O sistema abre o diálogo nativo do navegador, sem depender de extensão ou programa local. Para obter o tamanho correto:
 
-## Estrutura do Projeto
+1. Instale a impressora normalmente no sistema operacional.
+2. Escolha 58 ou 80 mm para comprovantes, ou 52/88 mm para etiquetas, na tela de customização.
+3. No diálogo de impressão, selecione a impressora térmica, escala de 100%, margens “Nenhuma” e desative cabeçalhos e rodapés.
+4. Para impressão automática sem diálogo, use o modo quiosque do navegador somente em um computador dedicado e administrado.
 
+## Validação
+
+```bash
+npm test
+npm run lint
+npm run build
 ```
-sistema-pdv/
-├── src/
-│   ├── app/
-│   │   ├── api/           # API Routes (auth)
-│   │   ├── dashboard/     # Dashboard principal
-│   │   ├── vendas/        # Frente de caixa
-│   │   ├── produtos/      # Catálogo de produtos
-│   │   ├── clientes/      # Gestão de clientes
-│   │   ├── historico/     # Histórico de vendas
-│   │   ├── crediario/     # Controle de crediário
-│   │   ├── etiquetas/     # Impressão de etiquetas
-│   │   ├── customizacao/  # Customização
-│   │   ├── admin/         # Painel admin
-│   │   └── login/         # Página de login
-│   ├── components/        # Componentes reutilizáveis
-│   ├── lib/               # Utilitários e config
-│   └── store/             # Zustand stores
-├── supabase/
-│   └── migrations/        # Migrations do banco
-└── ...
-```
+
+## Publicação na Vercel
+
+1. Importe o repositório na Vercel.
+2. Cadastre as três variáveis do `.env.example` nos ambientes desejados.
+3. Aplique as migrations no Supabase antes de disponibilizar a nova versão.
+4. Faça o deploy.
+
+O backup disponível no sistema exporta apenas os dados da empresa autenticada e não inclui hashes de senha.
+
+## Tecnologias
+
+- Next.js 16 e React 19
+- Supabase/PostgreSQL
+- Tailwind CSS
+- JWT assinado com `jose`
+- Recharts, Lucide e react-barcode
 
 ## Licença
 

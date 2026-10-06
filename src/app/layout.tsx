@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
+import PwaRegister from '@/components/PwaRegister';
 
 export const metadata: Metadata = {
   title: 'Sistema PDV',
@@ -16,6 +17,7 @@ export default function RootLayout({
     <html lang="pt-BR">
       <body className="bg-slate-50 text-slate-900 antialiased">
         {children}
+        <PwaRegister />
         <Toaster
           position="top-right"
           toastOptions={{

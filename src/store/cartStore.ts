@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { Produto, CartItem, MetodoPagamento } from '@/lib/types';
 
 interface CartState {
@@ -20,7 +21,7 @@ interface CartState {
   getTotal: () => number;
 }
 
-export const useCartStore = create<CartState>((set, get) => ({
+export const useCartStore = create<CartState>()(persist((set, get) => ({
   items: [],
   clienteId: null,
   clienteNome: null,
@@ -28,12 +29,17 @@ export const useCartStore = create<CartState>((set, get) => ({
   metodosPagamento: [],
 
   addItem: (produto, quantidade = 1) => {
+    const safeQuantity = Math.min(Number(produto.estoque), Math.max(0, Number(quantidade) || 0));
+    if (safeQuantity <= 0) return;
     const items = get().items;
     const existingIndex = items.findIndex((item) => item.produto.id === produto.id);
 
     if (existingIndex >= 0) {
       const newItems = [...items];
-      newItems[existingIndex].quantidade += quantidade;
+      newItems[existingIndex].quantidade = Math.min(
+        Number(produto.estoque),
+        newItems[existingIndex].quantidade + safeQuantity
+      );
       newItems[existingIndex].subtotal = newItems[existingIndex].quantidade * produto.preco;
       set({ items: newItems });
     } else {
@@ -42,8 +48,8 @@ export const useCartStore = create<CartState>((set, get) => ({
           ...items,
           {
             produto,
-            quantidade,
-            subtotal: quantidade * produto.preco,
+            quantidade: safeQuantity,
+            subtotal: safeQuantity * produto.preco,
           },
         ],
       });
@@ -59,11 +65,11 @@ export const useCartStore = create<CartState>((set, get) => ({
       get().removeItem(produtoId);
       return;
     }
-    const items = get().items.map((item) =>
-      item.produto.id === produtoId
-        ? { ...item, quantidade, subtotal: quantidade * item.produto.preco }
-        : item
-    );
+    const items = get().items.map((item) => {
+      if (item.produto.id !== produtoId) return item;
+      const safeQuantity = Math.min(Number(item.produto.estoque), Number(quantidade) || 0);
+      return { ...item, quantidade: safeQuantity, subtotal: safeQuantity * item.produto.preco };
+    });
     set({ items });
   },
 
@@ -89,4 +95,13 @@ export const useCartStore = create<CartState>((set, get) => ({
   getTotal: () => {
     return get().getSubtotal() - get().desconto;
   },
+}), {
+  name: 'pdv-carrinho-v1',
+  partialize: (state) => ({
+    items: state.items,
+    clienteId: state.clienteId,
+    clienteNome: state.clienteNome,
+    desconto: state.desconto,
+    metodosPagamento: state.metodosPagamento,
+  }),
 }));

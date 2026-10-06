@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import Header from '@/components/Header';
-import supabase from '@/lib/supabase';
+import { apiFetch } from '@/lib/http';
 import { formatCurrency } from '@/lib/utils';
 import type { Produto } from '@/lib/types';
 import { Plus, Edit2, Trash2, Search, X, Package, Save } from 'lucide-react';
@@ -19,11 +19,17 @@ export default function ProdutosPage() {
   const [f, setF] = useState(empty);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { load(); }, []);
+  const canManage = session?.usuario.role === 'admin' || session?.usuario.role === 'gerente';
+
+  useEffect(() => { if (session) load(); }, [session]);
   const load = async () => {
     if (!session) return;
-    const { data } = await supabase.from('produtos').select('*').eq('empresa_id', session.empresa.id).order('nome');
-    if (data) setProdutos(data);
+    try {
+      const { products } = await apiFetch<{ products: Produto[] }>('/api/products?includeInactive=true');
+      setProdutos(products);
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
   };
   const openNew = () => { setF(empty); setEditId(null); setShow(true); };
   const openEdit = (p: Produto) => { setF({ nome: p.nome, codigo: p.codigo, descricao: p.descricao || '', preco: p.preco.toString(), preco_custo: (p.preco_custo || '').toString(), estoque: p.estoque.toString(), estoque_minimo: (p.estoque_minimo || '').toString(), categoria: p.categoria || '', unidade: p.unidade }); setEditId(p.id); setShow(true); };
@@ -32,22 +38,22 @@ export default function ProdutosPage() {
     if (!f.nome || !f.codigo || !f.preco) { toast.error('Preencha nome, código e preço'); return; }
     setSaving(true);
     try {
-      const p = { empresa_id: session.empresa.id, nome: f.nome, codigo: f.codigo, descricao: f.descricao || null, preco: parseFloat(f.preco) || 0, preco_custo: f.preco_custo ? parseFloat(f.preco_custo) : null, estoque: parseInt(f.estoque) || 0, estoque_minimo: f.estoque_minimo ? parseInt(f.estoque_minimo) : null, categoria: f.categoria || null, unidade: f.unidade, ativo: true };
-      if (editId) {
-        const { error } = await supabase.from('produtos').update(p).eq('id', editId);
-        if (error) throw error;
-        toast.success('Atualizado!');
-      } else {
-        const { error } = await supabase.from('produtos').insert(p);
-        if (error) throw error;
-        toast.success('Cadastrado!');
-      }
+      const p = { id: editId || undefined, nome: f.nome, codigo: f.codigo, descricao: f.descricao || null, preco: parseFloat(f.preco) || 0, preco_custo: f.preco_custo ? parseFloat(f.preco_custo) : null, estoque: parseFloat(f.estoque) || 0, estoque_minimo: f.estoque_minimo ? parseFloat(f.estoque_minimo) : null, categoria: f.categoria || null, unidade: f.unidade };
+      await apiFetch('/api/products', { method: editId ? 'PATCH' : 'POST', body: JSON.stringify(p) });
+      toast.success(editId ? 'Produto atualizado!' : 'Produto cadastrado!');
       setShow(false);
       await load();
     } catch (error) { console.error('Save error:', error); toast.error('Erro ao salvar: ' + (error as Error).message); }
     finally { setSaving(false); }
   };
-  const del = async (id: string) => { if (!confirm('Remover?')) return; await supabase.from('produtos').update({ ativo: false }).eq('id', id); toast.success('Removido'); load(); };
+  const del = async (id: string) => {
+    if (!confirm('Desativar este produto? O histórico de vendas será preservado.')) return;
+    try {
+      await apiFetch(`/api/products?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      toast.success('Produto desativado');
+      load();
+    } catch (error) { toast.error((error as Error).message); }
+  };
   const filtered = produtos.filter(p => p.ativo && (p.nome.toLowerCase().includes(search.toLowerCase()) || p.codigo.toLowerCase().includes(search.toLowerCase()) || (p.categoria && p.categoria.toLowerCase().includes(search.toLowerCase()))));
 
   return (
@@ -59,7 +65,7 @@ export default function ProdutosPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
             <input type="text" value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl" placeholder="Buscar..." />
           </div>
-          <button onClick={openNew} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl"><Plus className="w-5 h-5" /> Novo</button>
+          {canManage && <button onClick={openNew} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl"><Plus className="w-5 h-5" /> Novo</button>}
         </div>
         <div className="bg-white rounded-xl border overflow-hidden">
           <table className="w-full">
@@ -73,7 +79,7 @@ export default function ProdutosPage() {
                   <td className="px-4 py-3 text-sm text-slate-500">{p.categoria || '-'}</td>
                   <td className="px-4 py-3 text-sm text-right font-semibold text-green-600">{formatCurrency(p.preco)}</td>
                   <td className="px-4 py-3 text-sm text-right"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${p.estoque <= 0 ? 'bg-red-100 text-red-700' : p.estoque_minimo && p.estoque <= p.estoque_minimo ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>{p.estoque} {p.unidade}</span></td>
-                  <td className="px-4 py-3 text-center"><button onClick={() => openEdit(p)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg inline-block"><Edit2 className="w-4 h-4" /></button><button onClick={() => del(p.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg inline-block ml-1"><Trash2 className="w-4 h-4" /></button></td>
+                  <td className="px-4 py-3 text-center">{canManage ? <><button aria-label={`Editar ${p.nome}`} onClick={() => openEdit(p)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg inline-block"><Edit2 className="w-4 h-4" /></button><button aria-label={`Desativar ${p.nome}`} onClick={() => del(p.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg inline-block ml-1"><Trash2 className="w-4 h-4" /></button></> : <span className="text-xs text-slate-400">Somente leitura</span>}</td>
                 </tr>
               ))}
             </tbody>

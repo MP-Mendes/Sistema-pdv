@@ -3,10 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import Header from '@/components/Header';
-import supabase from '@/lib/supabase';
+import { apiFetch } from '@/lib/http';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { Crediario, Cliente } from '@/lib/types';
-import { CreditCard, Search, X, DollarSign, Users, AlertTriangle, Save } from 'lucide-react';
+import { CreditCard, Search, X, DollarSign, Users, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface CrediarioWithCliente extends Crediario {
@@ -24,13 +24,14 @@ export default function CrediarioPage() {
   const [paymentMethod, setPaymentMethod] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix'>('dinheiro');
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { loadCrediarios(); }, []);
+  useEffect(() => { if (session) loadCrediarios(); }, [session]);
 
   const loadCrediarios = async () => {
     if (!session) return;
-    const { data } = await supabase.from('crediarios').select('*, cliente:clientes(*)')
-      .eq('empresa_id', session.empresa.id).order('created_at', { ascending: false });
-    if (data) setCrediarios(data as CrediarioWithCliente[]);
+    try {
+      const { credits } = await apiFetch<{ credits: CrediarioWithCliente[] }>('/api/credit');
+      setCrediarios(credits);
+    } catch (error) { toast.error((error as Error).message); }
   };
 
   const handlePayment = async () => {
@@ -41,15 +42,10 @@ export default function CrediarioPage() {
     }
     setLoading(true);
     try {
-      await supabase.from('pagamentos_crediario').insert({
-        crediario_id: selectedCrediario.id, valor, metodo: paymentMethod,
+      await apiFetch('/api/credit', {
+        method: 'POST',
+        body: JSON.stringify({ id: selectedCrediario.id, valor, metodo: paymentMethod }),
       });
-      const novoValorPago = Number(selectedCrediario.valor_pago) + valor;
-      const novoValorPendente = Number(selectedCrediario.valor_total) - novoValorPago;
-      const novoStatus = novoValorPendente <= 0.01 ? 'quitado' : 'parcial';
-      await supabase.from('crediarios').update({
-        valor_pago: novoValorPago, valor_pendente: Math.max(0, novoValorPendente), status: novoStatus,
-      }).eq('id', selectedCrediario.id);
       toast.success('Pagamento registrado!');
       setShowPaymentModal(false);
       setPaymentValue('');
@@ -201,7 +197,7 @@ export default function CrediarioPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Método de Pagamento</label>
-                <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as any)}
+                <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg">
                   <option value="dinheiro">Dinheiro</option>
                   <option value="cartao_credito">Cartão de Crédito</option>

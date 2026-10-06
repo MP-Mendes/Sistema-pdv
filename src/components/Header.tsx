@@ -1,7 +1,6 @@
 'use client';
 
 import { useAuthStore } from '@/store/authStore';
-import { Menu, Bell } from 'lucide-react';
 
 interface HeaderProps {
   title: string;
@@ -19,11 +18,8 @@ export default function Header({ title, subtitle }: HeaderProps) {
           {subtitle && <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>}
         </div>
         <div className="flex items-center gap-4">
-          <button className="relative p-2 rounded-lg hover:bg-slate-100 transition-colors">
-            <Bell className="w-5 h-5 text-slate-600" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
-          </button>
           <div className="flex items-center gap-3">
+            <div className="hidden sm:block text-right"><p className="text-sm font-medium text-slate-800">{session?.usuario?.nome}</p><p className="text-xs text-slate-500 capitalize">{session?.usuario?.role}</p></div>
             <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
               {session?.usuario?.nome?.charAt(0).toUpperCase() || 'U'}
             </div>

@@ -1,15 +1,15 @@
 import { getSession } from '@/lib/auth';
-import supabase from '@/lib/supabase';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import Header from '@/components/Header';
 import DashboardContent from './DashboardContent';
 import { getStartOfDay, getEndOfDay, getStartOfWeek } from '@/lib/utils';
-import type { Venda, Produto, Cliente, Crediario } from '@/lib/types';
 
 export default async function DashboardPage() {
   const session = await getSession();
   if (!session) return null;
 
   const empresaId = session.empresa.id;
+  const supabase = getSupabaseAdmin();
   const startOfDay = getStartOfDay();
   const endOfDay = getEndOfDay();
   const startOfWeek = getStartOfWeek();
