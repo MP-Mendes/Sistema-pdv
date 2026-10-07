@@ -21,3 +21,20 @@ export function paymentDifference(total: number, payments: Array<{ valor: number
   const paid = payments.reduce((sum, payment) => sum + Number(payment.valor || 0), 0);
   return Math.round((total - paid) * 100) / 100;
 }
+
+export function roundMoney(value: number) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+export function getQuantityStep(unit: string) {
+  return unit === 'kg' || unit === 'l' ? 0.001 : 1;
+}
+
+export function normalizeQuantity(value: number, unit: string) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return 0;
+
+  return getQuantityStep(unit) === 1
+    ? Math.max(1, Math.trunc(numericValue))
+    : Math.round(numericValue * 1000) / 1000;
+}

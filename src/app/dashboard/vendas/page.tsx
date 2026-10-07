@@ -6,6 +6,7 @@ import { useCartStore } from '@/store/cartStore';
 import Header from '@/components/Header';
 import { apiFetch } from '@/lib/http';
 import { formatCurrency } from '@/lib/utils';
+import { getQuantityStep, normalizeQuantity, roundMoney } from '@/lib/business';
 import { METODOS_PAGAMENTO, type Produto, type Cliente, type MetodoPagamento } from '@/lib/types';
 import { Search, Plus, Minus, Trash2, ShoppingCart, User, X, Check, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -47,6 +48,13 @@ interface ReceiptSale {
   itens?: ReceiptSaleItem[];
   pagamentos?: ReceiptSalePayment[];
 }
+
+const formatQuantity = (quantity: number, unit: string) => getQuantityStep(unit) === 1
+  ? String(Math.trunc(quantity))
+  : quantity.toLocaleString('pt-BR', {
+      minimumFractionDigits: 3,
+      maximumFractionDigits: 3,
+    });
 
 export default function VendasPage() {
   const { session } = useAuthStore();
@@ -188,7 +196,9 @@ export default function VendasPage() {
     } catch (error) { console.error(error); toast.error((error as Error).message); }
   };
 
-  const subtotal = getSubtotal(); const total = getTotal(); const totalPagamentos = paymentMetodos.reduce((s, m) => s + m.valor, 0);
+  const subtotal = getSubtotal();
+  const total = getTotal();
+  const totalPagamentos = roundMoney(paymentMetodos.reduce((sum, payment) => sum + payment.valor, 0));
 
   return (
     <div>
@@ -241,18 +251,20 @@ export default function VendasPage() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto max-h-64 p-4 space-y-2">
-              {items.length === 0 ? <p className="text-slate-400 text-center py-8 text-sm">Carrinho vazio</p> : items.map(item => (
+              {items.length === 0 ? <p className="text-slate-400 text-center py-8 text-sm">Carrinho vazio</p> : items.map(item => {
+                const quantityStep = getQuantityStep(item.produto.unidade);
+                return (
                 <div key={item.produto.id} className="flex items-center gap-3 p-2 bg-slate-50 rounded-lg">
-                  <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{item.produto.nome}</p><p className="text-xs text-slate-500">{formatCurrency(item.produto.preco)} x {item.quantidade}</p></div>
+                  <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{item.produto.nome}</p><p className="text-xs text-slate-500 tabular-nums">{formatCurrency(item.produto.preco)} × {formatQuantity(item.quantidade, item.produto.unidade)} {item.produto.unidade}</p></div>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => updateQuantity(item.produto.id, item.quantidade - 1)} className="p-1 rounded hover:bg-slate-200"><Minus className="w-3 h-3" /></button>
-                    <input aria-label={`Quantidade de ${item.produto.nome}`} type="number" min="0.001" max={item.produto.estoque} step={['kg', 'l'].includes(item.produto.unidade) ? '0.001' : '1'} value={item.quantidade} onChange={(event) => updateQuantity(item.produto.id, Number(event.target.value))} className="w-16 rounded border border-slate-300 px-1 py-0.5 text-center text-sm font-medium" />
-                    <button onClick={() => updateQuantity(item.produto.id, item.quantidade + 1)} className="p-1 rounded hover:bg-slate-200"><Plus className="w-3 h-3" /></button>
+                    <button aria-label={`Diminuir quantidade de ${item.produto.nome}`} onClick={() => updateQuantity(item.produto.id, normalizeQuantity(item.quantidade - quantityStep, item.produto.unidade))} className="p-1 rounded hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><Minus className="w-3 h-3" /></button>
+                    <input aria-label={`Quantidade de ${item.produto.nome} em ${item.produto.unidade}`} type="number" inputMode="decimal" min={quantityStep} max={item.produto.estoque} step={quantityStep} value={item.quantidade} onChange={(event) => updateQuantity(item.produto.id, Number(event.target.value))} className="w-16 rounded border border-slate-300 px-1 py-0.5 text-center text-sm font-medium tabular-nums" />
+                    <button aria-label={`Aumentar quantidade de ${item.produto.nome}`} disabled={item.quantidade >= Number(item.produto.estoque)} onClick={() => updateQuantity(item.produto.id, normalizeQuantity(item.quantidade + quantityStep, item.produto.unidade))} className="p-1 rounded hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40"><Plus className="w-3 h-3" /></button>
                   </div>
                   <p className="text-sm font-bold text-green-600 w-20 text-right">{formatCurrency(item.subtotal)}</p>
-                  <button onClick={() => removeItem(item.produto.id)} className="p-1 text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                  <button aria-label={`Remover ${item.produto.nome} do carrinho`} onClick={() => removeItem(item.produto.id)} className="p-1 text-red-400 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 rounded"><Trash2 className="w-4 h-4" /></button>
                 </div>
-              ))}
+              );})}
             </div>
             <div className="p-4 border-t border-slate-200 space-y-2">
               <div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><span className="font-medium">{formatCurrency(subtotal)}</span></div>
@@ -262,7 +274,6 @@ export default function VendasPage() {
                   <input aria-label="Desconto da venda" type="number" min="0" max={subtotal} step="0.01" value={desconto || ''} onChange={(event) => setDesconto(Math.min(subtotal, Math.max(0, Number(event.target.value) || 0)))} className="w-28 rounded-lg border border-slate-300 px-2 py-1.5 text-right text-slate-900" placeholder="0,00" />
                 </label>
               )}
-              {desconto > 0 && <div className="flex justify-between text-sm text-red-500"><span>Desconto</span><span>-{formatCurrency(desconto)}</span></div>}
               <div className="flex justify-between text-lg font-bold border-t border-slate-200 pt-2"><span>Total</span><span className="text-green-600">{formatCurrency(total)}</span></div>
               <button onClick={handleFinalizeSale} disabled={items.length === 0} className="w-full py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
                 <Check className="w-5 h-5" /> Finalizar Venda <span className="text-xs opacity-75">F4</span>

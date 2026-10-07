@@ -3,6 +3,20 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Produto, CartItem, MetodoPagamento } from '@/lib/types';
+import { normalizeQuantity, roundMoney } from '@/lib/business';
+
+const normalizeCartItem = (item: CartItem): CartItem => {
+  const quantidade = Math.min(
+    Number(item.produto.estoque),
+    normalizeQuantity(item.quantidade, item.produto.unidade)
+  );
+
+  return {
+    ...item,
+    quantidade,
+    subtotal: roundMoney(quantidade * Number(item.produto.preco)),
+  };
+};
 
 interface CartState {
   items: CartItem[];
@@ -29,18 +43,21 @@ export const useCartStore = create<CartState>()(persist((set, get) => ({
   metodosPagamento: [],
 
   addItem: (produto, quantidade = 1) => {
-    const safeQuantity = Math.min(Number(produto.estoque), Math.max(0, Number(quantidade) || 0));
+    const safeQuantity = Math.min(
+      Number(produto.estoque),
+      normalizeQuantity(quantidade, produto.unidade)
+    );
     if (safeQuantity <= 0) return;
     const items = get().items;
     const existingIndex = items.findIndex((item) => item.produto.id === produto.id);
 
     if (existingIndex >= 0) {
       const newItems = [...items];
-      newItems[existingIndex].quantidade = Math.min(
+      newItems[existingIndex].quantidade = normalizeQuantity(Math.min(
         Number(produto.estoque),
         newItems[existingIndex].quantidade + safeQuantity
-      );
-      newItems[existingIndex].subtotal = newItems[existingIndex].quantidade * produto.preco;
+      ), produto.unidade);
+      newItems[existingIndex].subtotal = roundMoney(newItems[existingIndex].quantidade * produto.preco);
       set({ items: newItems });
     } else {
       set({
@@ -49,7 +66,7 @@ export const useCartStore = create<CartState>()(persist((set, get) => ({
           {
             produto,
             quantidade: safeQuantity,
-            subtotal: safeQuantity * produto.preco,
+            subtotal: roundMoney(safeQuantity * produto.preco),
           },
         ],
       });
@@ -67,15 +84,22 @@ export const useCartStore = create<CartState>()(persist((set, get) => ({
     }
     const items = get().items.map((item) => {
       if (item.produto.id !== produtoId) return item;
-      const safeQuantity = Math.min(Number(item.produto.estoque), Number(quantidade) || 0);
-      return { ...item, quantidade: safeQuantity, subtotal: safeQuantity * item.produto.preco };
+      const safeQuantity = Math.min(
+        Number(item.produto.estoque),
+        normalizeQuantity(quantidade, item.produto.unidade)
+      );
+      return {
+        ...item,
+        quantidade: safeQuantity,
+        subtotal: roundMoney(safeQuantity * item.produto.preco),
+      };
     });
     set({ items });
   },
 
   setCliente: (id, nome) => set({ clienteId: id, clienteNome: nome }),
 
-  setDesconto: (desconto) => set({ desconto }),
+  setDesconto: (desconto) => set({ desconto: roundMoney(Math.max(0, desconto)) }),
 
   setMetodosPagamento: (metodos) => set({ metodosPagamento: metodos }),
 
@@ -89,14 +113,26 @@ export const useCartStore = create<CartState>()(persist((set, get) => ({
     }),
 
   getSubtotal: () => {
-    return get().items.reduce((sum, item) => sum + item.subtotal, 0);
+    return roundMoney(get().items.reduce((sum, item) => sum + item.subtotal, 0));
   },
 
   getTotal: () => {
-    return get().getSubtotal() - get().desconto;
+    return roundMoney(Math.max(0, get().getSubtotal() - get().desconto));
   },
 }), {
   name: 'pdv-carrinho-v1',
+  version: 2,
+  migrate: (persistedState) => {
+    const state = persistedState as Partial<CartState>;
+    const items = (state.items ?? []).map(normalizeCartItem).filter((item) => item.quantidade > 0);
+    const subtotal = roundMoney(items.reduce((sum, item) => sum + item.subtotal, 0));
+
+    return {
+      ...state,
+      items,
+      desconto: Math.min(subtotal, roundMoney(Math.max(0, Number(state.desconto) || 0))),
+    } as CartState;
+  },
   partialize: (state) => ({
     items: state.items,
     clienteId: state.clienteId,

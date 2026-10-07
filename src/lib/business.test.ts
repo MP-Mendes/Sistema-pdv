@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { calculateCashBalance, paymentDifference, quantitiesAreAvailable } from './business';
+import {
+  calculateCashBalance,
+  getQuantityStep,
+  normalizeQuantity,
+  paymentDifference,
+  quantitiesAreAvailable,
+  roundMoney,
+} from './business';
 
 describe('regras operacionais do PDV', () => {
   it('calcula o saldo do caixa considerando entradas e saídas', () => {
@@ -20,5 +27,16 @@ describe('regras operacionais do PDV', () => {
   it('compara pagamentos com precisão de centavos', () => {
     expect(paymentDifference(10, [{ valor: 3.33 }, { valor: 6.67 }])).toBe(0);
     expect(paymentDifference(10, [{ valor: 9.5 }])).toBe(0.5);
+  });
+
+  it('normaliza quantidades conforme a unidade do produto', () => {
+    expect(getQuantityStep('un')).toBe(1);
+    expect(getQuantityStep('kg')).toBe(0.001);
+    expect(normalizeQuantity(1.001, 'un')).toBe(1);
+    expect(normalizeQuantity(1.0014, 'kg')).toBe(1.001);
+  });
+
+  it('arredonda totais monetários em centavos', () => {
+    expect(roundMoney(123 * 1.001)).toBe(123.12);
   });
 });
